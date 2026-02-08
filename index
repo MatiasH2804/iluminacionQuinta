@@ -1,0 +1,749 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Simulador 3D Offline – Luces Reales (Max 100W)</title>
+  <style>
+    :root { color-scheme: dark; }
+    html, body { height:100%; margin:0; background:#000; overflow:hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; }
+    #gl { display:block; width:100vw; height:100vh; }
+    #panel{
+      position:fixed; top:10px; left:10px; z-index:10;
+      width:380px; max-height:calc(100vh - 20px); overflow:auto;
+      padding:10px 10px 12px;
+      background: rgba(15,15,18,.85);
+      border:1px solid rgba(255,255,255,.12);
+      border-radius:12px;
+      backdrop-filter: blur(6px);
+    }
+    #panel h1{ margin:0 0 6px; font-size:14px; font-weight:700; letter-spacing:.2px; }
+    #panel .hint{ font-size:12px; opacity:.85; margin-bottom:10px; line-height:1.35; color:#ccc; }
+    .row{ display:flex; align-items:center; gap:8px; margin:6px 0; }
+    .row>label{ flex:0 0 110px; font-size:12px; opacity:.9; }
+    .row>input[type="range"]{ flex:1 1 auto; }
+    .row>input[type="number"]{ width:80px; }
+    .row>input[type="color"]{ width:50px; height:24px; padding:0; border:none; background:none; cursor:pointer; }
+    .row>select{ flex:1 1 auto; }
+    .row>button{
+      flex:1 1 auto; padding:8px 10px; border-radius:10px;
+      border:1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.08);
+      color:#fff; cursor:pointer; font-size:12px;
+    }
+    .row>button:hover{ background: rgba(255,255,255,.16); }
+    .hr{ height:1px; background: rgba(255,255,255,.10); margin:10px 0; }
+    .card{ border-radius:12px; padding:8px 10px; border:1px solid rgba(255,255,255,.10); background: rgba(0,0,0,.3); }
+    .cardHead{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+    .badge{ font-size:12px; font-weight:700; color:#fff; }
+    .muted{ font-size:11px; opacity:.7; }
+    .tiny{ font-size:11px; opacity:.75; font-family:monospace; }
+    .btnRow{ display:flex; gap:8px; margin-top:8px; }
+    .btnRow button{ flex:1 1 auto; padding:7px 10px; border-radius:10px; border:1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.08); color:#fff; cursor:pointer; font-size:12px; }
+    .btnRow button:hover{ background: rgba(255,255,255,.16); }
+    #toast{
+      position:fixed; left:50%; bottom:20px; transform:translateX(-50%);
+      padding:8px 12px; border-radius:10px; font-size:13px; font-weight:500;
+      background: rgba(20,20,22,.9); border:1px solid rgba(255,255,255,.2);
+      opacity:0; transition: opacity .2s ease;
+      pointer-events:none; z-index:20; white-space:pre-line; text-align:center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+    }
+    #toast.show{ opacity:1; }
+    #fatal{
+      position:fixed; inset:0; display:none; place-items:center;
+      background:#000; color:#fff; z-index:999; padding:20px;
+    }
+    #fatal .box{
+      max-width:900px; border:1px solid rgba(255,255,255,.16);
+      border-radius:16px; padding:20px; background: rgba(20,20,24,.95);
+    }
+    #fatal h2{ margin:0 0 10px; font-size:18px; color:#ff5555; }
+    #fatal pre{ white-space:pre-wrap; font-size:12px; opacity:.9; margin:10px 0 0; background:#111; padding:10px; border-radius:6px; }
+  </style>
+</head>
+<body>
+  <canvas id="gl"></canvas>
+
+  <div id="panel">
+    <h1>Simulador 3D – Real LED (Max 100W)</h1>
+    <div class="hint">
+      • <b>WASD</b> mover, <b>Q/E</b> altura, <b>Click der</b> mirar.<br>
+      • <b>Shift+Click</b> mueve el foco en el piso.<br>
+      • Escala LED real: 10W ilumina, 100W explota.<br>
+    </div>
+
+    <div class="row">
+      <label>Seleccionado</label>
+      <select id="sel"></select>
+    </div>
+
+    <div class="row">
+      <button id="add">+ Agregar</button>
+      <button id="clone">Clonar</button>
+      <button id="del" style="background:rgba(255,50,50,0.2)">Eliminar</button>
+    </div>
+    
+    <div class="hr"></div>
+
+    <div class="card" id="editCard">
+      <div class="cardHead">
+        <div>
+          <div class="badge" id="name">Reflector</div>
+          <div class="tiny" id="posRead">x=0.00 y=0.00 z=0.00</div>
+        </div>
+        <div class="muted" id="watRead">0 W</div>
+      </div>
+
+      <div class="row">
+        <label>Color</label>
+        <input id="clr" type="color" value="#ffffff" style="width:100%"/>
+      </div>
+
+      <div class="row">
+        <label>Watts LED</label>
+        <input id="wat" type="range" min="1" max="100" step="1" value="30" />
+        <input id="watNum" type="number" min="1" max="100" step="1" value="30" />
+      </div>
+
+      <div class="row">
+        <label>Altura (y)</label>
+        <input id="y" type="range" min="0.2" max="9.5" step="0.05" value="8.0" />
+        <input id="yNum" type="number" min="0.2" max="9.5" step="0.05" value="8.0" />
+      </div>
+
+      <div class="row">
+        <label>X</label>
+        <input id="x" type="range" min="-6" max="6" step="0.05" value="0" />
+        <input id="xNum" type="number" min="-6" max="6" step="0.05" value="0" />
+      </div>
+
+      <div class="row">
+        <label>Z</label>
+        <input id="z" type="range" min="-15" max="15" step="0.05" value="0" />
+        <input id="zNum" type="number" min="-15" max="15" step="0.05" value="0" />
+      </div>
+
+      <div class="row">
+        <label>Ángulo</label>
+        <input id="angle" type="range" min="10" max="120" step="1" value="60" />
+        <input id="angleNum" type="number" min="10" max="120" step="1" value="60" />
+      </div>
+
+      <div class="row">
+        <label>Alcance</label>
+        <input id="dist" type="range" min="1" max="120" step="1" value="65" />
+        <input id="distNum" type="number" min="1" max="120" step="1" value="65" />
+      </div>
+    </div>
+
+    <div class="hr"></div>
+
+    <div style="font-size:12px; font-weight:700; margin-bottom:4px; opacity:.8">Ajustes de Cámara / Render</div>
+    <div class="row">
+      <label>Exposición</label>
+      <input id="exp" type="range" min="0.2" max="4.0" step="0.05" value="1.6" />
+    </div>
+    <div class="row">
+      <label>Ambiente</label>
+      <input id="amb" type="range" min="0" max="0.60" step="0.01" value="0.10" />
+    </div>
+    
+    <div class="btnRow">
+      <button id="resetCam">Reset Cam</button>
+      <button id="resetAll">Reset Todo</button>
+    </div>
+
+    <div class="muted" style="font-size:11px; margin-top:8px">
+      Luces activas: <b id="cntL">0</b>/<span id="maxL"></span>. Calibración LED v2.
+    </div>
+  </div>
+
+  <div id="toast"></div>
+  <div id="fatal"><div class="box"><h2>Error Crítico 3D</h2><div id="fatalText"></div><pre id="fatalPre"></pre></div></div>
+
+<script>
+(() => {
+  // --- Utilidades ---
+  const fatal = (msg, err) => {
+    document.getElementById("fatal").style.display = "grid";
+    document.getElementById("fatalText").textContent = msg || "Error desconocido";
+    document.getElementById("fatalPre").textContent = err ? (err.stack || String(err)) : "";
+  };
+
+  const toast = document.getElementById("toast");
+  const showToast = (msg) => {
+    toast.textContent = msg;
+    toast.classList.add("show");
+    setTimeout(() => toast.classList.remove("show"), 2000);
+  };
+
+  // --- WebGL Setup ---
+  const canvas = document.getElementById("gl");
+  const gl = canvas.getContext("webgl", { antialias: true, alpha: false }) || canvas.getContext("experimental-webgl");
+  if (!gl) { fatal("Tu navegador no soporta WebGL o la aceleración está desactivada.", null); return; }
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = Math.floor(innerWidth * dpr);
+    const h = Math.floor(innerHeight * dpr);
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w; canvas.height = h;
+      canvas.style.width = innerWidth + "px";
+      canvas.style.height = innerHeight + "px";
+      gl.viewport(0, 0, w, h);
+    }
+  }
+  window.addEventListener("resize", resize);
+  resize();
+
+  // --- Vector Maths ---
+  const v3 = {
+    add:(a,b)=>[a[0]+b[0],a[1]+b[1],a[2]+b[2]],
+    sub:(a,b)=>[a[0]-b[0],a[1]-b[1],a[2]-b[2]],
+    mul:(a,s)=>[a[0]*s,a[1]*s,a[2]*s],
+    dot:(a,b)=>a[0]*b[0]+a[1]*b[1]+a[2]*b[2],
+    cross:(a,b)=>[a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]],
+    len:(a)=>Math.hypot(a[0],a[1],a[2]),
+    norm:(a)=>{ const L=Math.hypot(a[0],a[1],a[2])||1; return [a[0]/L,a[1]/L,a[2]/L]; },
+  };
+
+  const m4 = {
+    perspective:(fovy, aspect, near, far)=>{
+      const f=1/Math.tan(fovy/2), nf=1/(near-far);
+      return [ f/aspect,0,0,0, 0,f,0,0, 0,0,(far+near)*nf,-1, 0,0,(2*far*near)*nf,0 ];
+    },
+    lookAt:(eye, center, up)=>{
+      const f=v3.norm(v3.sub(center,eye));
+      const s=v3.norm(v3.cross(f,up));
+      const u=v3.cross(s,f);
+      return [
+        s[0], u[0], -f[0], 0,
+        s[1], u[1], -f[1], 0,
+        s[2], u[2], -f[2], 0,
+        -v3.dot(s,eye), -v3.dot(u,eye), v3.dot(f,eye), 1
+      ];
+    }
+  };
+
+  const hexToRgb = (hex) => {
+    const bigint = parseInt(hex.slice(1), 16);
+    const r = (bigint >> 16) & 255;
+    const g = (bigint >> 8) & 255;
+    const b = bigint & 255;
+    return [r/255, g/255, b/255];
+  };
+
+  // --- Shaders ---
+  const MAX_LIGHTS = 32;
+  document.getElementById("maxL").textContent = String(MAX_LIGHTS);
+
+  const roomVS = `
+    attribute vec3 aPos;
+    attribute vec3 aNor;
+    uniform mat4 uView;
+    uniform mat4 uProj;
+    varying vec3 vPos;
+    varying vec3 vNor;
+    void main(){
+      vPos = aPos;
+      vNor = aNor;
+      gl_Position = uProj * uView * vec4(aPos, 1.0);
+    }
+  `;
+
+  const roomFS = `
+    precision mediump float;
+    varying vec3 vPos;
+    varying vec3 vNor;
+
+    uniform vec3 uBaseColor;
+    uniform float uAmbient;
+    uniform float uExposure;
+    uniform float uGamma;
+
+    uniform int uLightCount;
+    uniform vec3 uLightPos[`+MAX_LIGHTS+`];
+    uniform vec3 uLightColor[`+MAX_LIGHTS+`];
+    uniform float uLightPower[`+MAX_LIGHTS+`];
+    uniform float uLightCutCos[`+MAX_LIGHTS+`];
+    uniform float uLightDist[`+MAX_LIGHTS+`];
+
+    void main(){
+      vec3 N = normalize(vNor);
+      vec3 color = uBaseColor * uAmbient;
+
+      for(int i=0;i<`+MAX_LIGHTS+`;i++){
+        if(i >= uLightCount) break;
+
+        vec3 L = uLightPos[i] - vPos;
+        float d = length(L);
+        if(d > uLightDist[i]) continue;
+
+        vec3 Ln = L / max(d, 0.0001);
+        float ndotl = max(dot(N, Ln), 0.0);
+
+        float spot = Ln.y; 
+        if(spot < uLightCutCos[i]) continue;
+
+        float edge = smoothstep(uLightCutCos[i], 1.0, spot);
+        float att = 1.0 / (1.0 + 0.1*d + 0.02*d*d);
+
+        float I = uLightPower[i] * ndotl * edge * att;
+        color += uBaseColor * uLightColor[i] * I;
+      }
+
+      color = vec3(1.0) - exp(-color * uExposure);
+      color = pow(color, vec3(1.0 / max(uGamma, 0.01)));
+
+      gl_FragColor = vec4(clamp(color, 0.0, 1.0), 1.0);
+    }
+  `;
+
+  const lineVS = `
+    attribute vec3 aPos;
+    uniform mat4 uView;
+    uniform mat4 uProj;
+    void main(){ gl_Position = uProj * uView * vec4(aPos, 1.0); }
+  `;
+  const lineFS = `
+    precision mediump float;
+    uniform vec4 uColor;
+    void main(){ gl_FragColor = uColor; }
+  `;
+
+  const pointVS = `
+    attribute vec3 aPos;
+    attribute float aSel;
+    uniform mat4 uView;
+    uniform mat4 uProj;
+    varying float vSel;
+    void main(){
+      vSel = aSel;
+      gl_Position = uProj * uView * vec4(aPos, 1.0);
+      gl_PointSize = 12.0 + 6.0 * aSel;
+    }
+  `;
+  const pointFS = `
+    precision mediump float;
+    varying float vSel;
+    void main(){
+      vec2 p = gl_PointCoord * 2.0 - 1.0;
+      if(dot(p,p)>1.0) discard;
+      vec3 c = mix(vec3(0.9, 0.9, 0.9), vec3(1.0, 0.5, 0.0), vSel);
+      gl_FragColor = vec4(c, 1.0);
+    }
+  `;
+
+  function createProg(vs, fs){
+    const s = (t, src) => {
+      const x = gl.createShader(t); gl.shaderSource(x, src); gl.compileShader(x);
+      if(!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x));
+      return x;
+    };
+    const p = gl.createProgram();
+    gl.attachShader(p, s(gl.VERTEX_SHADER, vs));
+    gl.attachShader(p, s(gl.FRAGMENT_SHADER, fs));
+    gl.linkProgram(p);
+    if(!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+    return p;
+  }
+
+  let roomP, lineP, pointP;
+  try {
+    roomP = createProg(roomVS, roomFS);
+    lineP = createProg(lineVS, lineFS);
+    pointP = createProg(pointVS, pointFS);
+  } catch(e){ fatal("Error compilando shaders:", e); return; }
+
+  // --- Geometry ---
+  const ROOM_W = 12, ROOM_L = 30, ROOM_H = 10;
+  const hw = ROOM_W/2, hl = ROOM_L/2, hh = ROOM_H;
+  
+  const roomPos = [], roomNor = [];
+  const pushPlane = (a,b,c,d, n) => {
+    roomPos.push(...a,...b,...c, ...a,...c,...d);
+    for(let i=0;i<6;i++) roomNor.push(...n);
+  };
+  pushPlane([-hw,0,-hl], [ hw,0,-hl], [ hw,0, hl], [-hw,0, hl], [0,1,0]);
+  pushPlane([-hw,hh, hl], [ hw,hh, hl], [ hw,hh,-hl], [-hw,hh,-hl], [0,-1,0]);
+  pushPlane([-hw,0,-hl], [-hw,hh,-hl], [ hw,hh,-hl], [ hw,0,-hl], [0,0,1]); 
+  pushPlane([ hw,0, hl], [ hw,hh, hl], [-hw,hh, hl], [-hw,0, hl], [0,0,-1]); 
+  pushPlane([-hw,0, hl], [-hw,hh, hl], [-hw,hh,-hl], [-hw,0,-hl], [1,0,0]); 
+  pushPlane([ hw,0,-hl], [ hw,hh,-hl], [ hw,hh, hl], [ hw,0, hl], [-1,0,0]); 
+
+  const grid = [];
+  for(let z=-hl; z<=hl; z+=1) grid.push(-hw,0.01,z, hw,0.01,z);
+  for(let x=-hw; x<=hw; x+=1) grid.push(x,0.01,-hl, x,0.01,hl);
+
+  const roomPosB = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, roomPosB); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(roomPos), gl.STATIC_DRAW);
+  const roomNorB = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, roomNorB); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(roomNor), gl.STATIC_DRAW);
+  const gridB = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, gridB); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(grid), gl.STATIC_DRAW);
+  
+  const ptPos = new Float32Array(MAX_LIGHTS*3);
+  const ptSel = new Float32Array(MAX_LIGHTS);
+  const ptPosB = gl.createBuffer();
+  const ptSelB = gl.createBuffer();
+  
+  const updatePoints = (list, selIdx) => {
+    gl.bindBuffer(gl.ARRAY_BUFFER, ptPosB);
+    gl.bufferData(gl.ARRAY_BUFFER, ptPos.length*4, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, ptSelB);
+    gl.bufferData(gl.ARRAY_BUFFER, ptSel.length*4, gl.DYNAMIC_DRAW);
+
+    for(let i=0; i<MAX_LIGHTS; i++){
+       if(i < list.length) {
+         ptPos[i*3] = list[i].x; ptPos[i*3+1] = list[i].y; ptPos[i*3+2] = list[i].z;
+         ptSel[i] = (i === selIdx) ? 1.0 : 0.0;
+       } else {
+         ptPos[i*3]=0; ptPos[i*3+1]=0; ptPos[i*3+2]=0; ptSel[i]=0;
+       }
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, ptPosB); gl.bufferSubData(gl.ARRAY_BUFFER, 0, ptPos);
+    gl.bindBuffer(gl.ARRAY_BUFFER, ptSelB); gl.bufferSubData(gl.ARRAY_BUFFER, 0, ptSel);
+  };
+
+  // --- WASD Camera ---
+  const cam = { pos: [0, 5, 25], yaw: 0, pitch: -0.1, fov: 60 };
+  const keys = { w:false, a:false, s:false, d:false, q:false, e:false };
+
+  window.addEventListener("keydown", e => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = true; });
+  window.addEventListener("keyup", e => { if(keys.hasOwnProperty(e.key.toLowerCase())) keys[e.key.toLowerCase()] = false; });
+
+  let drag = false, lastX=0, lastY=0;
+  canvas.addEventListener("mousedown", e => { if(e.button === 2) { drag = true; lastX = e.clientX; lastY = e.clientY; } });
+  window.addEventListener("mouseup", () => drag = false);
+  window.addEventListener("mousemove", e => {
+    if(!drag) return;
+    const dx = e.clientX - lastX; const dy = e.clientY - lastY;
+    lastX = e.clientX; lastY = e.clientY;
+    cam.yaw -= dx * 0.004;
+    cam.pitch -= dy * 0.004;
+    cam.pitch = Math.max(-1.5, Math.min(1.5, cam.pitch));
+  });
+  canvas.addEventListener("contextmenu", e=>e.preventDefault());
+  canvas.addEventListener("wheel", e => {
+    e.preventDefault();
+    const fwd = getCamBasis().fwd;
+    const speed = e.deltaY > 0 ? -1 : 1;
+    cam.pos = v3.add(cam.pos, v3.mul(fwd, speed));
+  }, {passive:false});
+
+  function getCamBasis(){
+    const cy = Math.cos(cam.yaw), sy = Math.sin(cam.yaw);
+    const cp = Math.cos(cam.pitch), sp = Math.sin(cam.pitch);
+    const fwd = [cy*cp, sp, sy*cp];
+    const rgt = v3.norm(v3.cross(fwd, [0,1,0]));
+    const up = v3.cross(rgt, fwd);
+    return { fwd, rgt, up };
+  }
+
+  function updateCamPhysics(){
+    const speed = 0.15; 
+    const b = getCamBasis();
+    if(keys.w) cam.pos = v3.add(cam.pos, v3.mul(b.fwd, speed));
+    if(keys.s) cam.pos = v3.sub(cam.pos, v3.mul(b.fwd, speed));
+    if(keys.d) cam.pos = v3.add(cam.pos, v3.mul(b.rgt, speed));
+    if(keys.a) cam.pos = v3.sub(cam.pos, v3.mul(b.rgt, speed));
+    if(keys.e) cam.pos[1] += speed; 
+    if(keys.q) cam.pos[1] -= speed; 
+  }
+
+  // --- Logic ---
+  const lights = [];
+  let selected = -1;
+
+  const ui = {
+    sel: document.getElementById("sel"),
+    add: document.getElementById("add"),
+    del: document.getElementById("del"),
+    clone: document.getElementById("clone"),
+    clr: document.getElementById("clr"),
+    wat: document.getElementById("wat"), watNum: document.getElementById("watNum"),
+    x: document.getElementById("x"), xNum: document.getElementById("xNum"),
+    y: document.getElementById("y"), yNum: document.getElementById("yNum"),
+    z: document.getElementById("z"), zNum: document.getElementById("zNum"),
+    ang: document.getElementById("angle"), angNum: document.getElementById("angleNum"),
+    dist: document.getElementById("dist"), distNum: document.getElementById("distNum"),
+    exp: document.getElementById("exp"),
+    amb: document.getElementById("amb"),
+    name: document.getElementById("name"),
+    posRead: document.getElementById("posRead"),
+    watRead: document.getElementById("watRead"),
+    cntL: document.getElementById("cntL")
+  };
+
+  const bindGroup = (ra, nu, cb) => {
+    ra.addEventListener("input", ()=>{ nu.value=ra.value; cb(); });
+    nu.addEventListener("input", ()=>{ ra.value=nu.value; cb(); });
+  };
+
+  const clampLoc = (lx,ly,lz) => [
+    Math.max(-hw+0.1, Math.min(hw-0.1, lx)),
+    Math.max(0.1, Math.min(hh-0.1, ly)),
+    Math.max(-hl+0.1, Math.min(hl-0.1, lz))
+  ];
+
+  function refreshSel(){
+    ui.sel.innerHTML = "";
+    lights.forEach((l,i) => {
+      const opt = document.createElement("option");
+      opt.value = i; opt.textContent = l.name;
+      ui.sel.appendChild(opt);
+    });
+    ui.sel.value = selected;
+    ui.cntL.textContent = lights.length;
+  }
+
+  function loadLightToUI(){
+    const l = lights[selected];
+    if(!l) { 
+      document.getElementById("editCard").style.opacity=0.5;
+      ui.name.textContent = "Ninguno";
+      return; 
+    }
+    document.getElementById("editCard").style.opacity=1;
+    ui.name.textContent = l.name;
+    ui.posRead.textContent = `x=${l.x.toFixed(2)} y=${l.y.toFixed(2)} z=${l.z.toFixed(2)}`;
+    ui.watRead.textContent = l.watts + " W (LED)";
+    
+    ui.wat.value = l.watts; ui.watNum.value = l.watts;
+    ui.x.value = l.x; ui.xNum.value = l.x;
+    ui.y.value = l.y; ui.yNum.value = l.y;
+    ui.z.value = l.z; ui.zNum.value = l.z;
+    ui.ang.value = l.angle; ui.angNum.value = l.angle;
+    ui.dist.value = l.dist; ui.distNum.value = l.dist;
+    ui.clr.value = l.color || "#ffffff";
+  }
+
+  function applyUI(){
+    if(selected < 0) return;
+    const l = lights[selected];
+    l.watts = Number(ui.wat.value);
+    l.x = Number(ui.x.value);
+    l.y = Number(ui.y.value);
+    l.z = Number(ui.z.value);
+    const c = clampLoc(l.x, l.y, l.z);
+    l.x=c[0]; l.y=c[1]; l.z=c[2];
+    l.angle = Number(ui.ang.value);
+    l.dist = Number(ui.dist.value);
+    l.color = ui.clr.value;
+    loadLightToUI(); 
+    updatePoints(lights, selected);
+  }
+
+  bindGroup(ui.wat, ui.watNum, applyUI);
+  bindGroup(ui.x, ui.xNum, applyUI);
+  bindGroup(ui.y, ui.yNum, applyUI);
+  bindGroup(ui.z, ui.zNum, applyUI);
+  bindGroup(ui.ang, ui.angNum, applyUI);
+  bindGroup(ui.dist, ui.distNum, applyUI);
+  ui.clr.addEventListener("input", applyUI);
+  ui.sel.addEventListener("change", ()=>{ selected=Number(ui.sel.value); loadLightToUI(); updatePoints(lights, selected); });
+
+  const addReflector = (props={}) => {
+    if(lights.length >= MAX_LIGHTS) { showToast("Máximo de luces alcanzado"); return; }
+    const idx = lights.length + 1;
+    const l = {
+      name: props.name || `R${idx}`,
+      x: props.x ?? 0, y: props.y ?? 8, z: props.z ?? 0,
+      watts: props.watts ?? 30, // DEFAULT: 30W (Quincho/Patio segun guia)
+      angle: props.angle ?? 60,
+      dist: props.dist ?? 65,
+      color: props.color || "#ffffff"
+    };
+    lights.push(l);
+    selected = lights.length - 1;
+    refreshSel();
+    loadLightToUI();
+    updatePoints(lights, selected);
+    showToast(`Creado ${l.name}`);
+  };
+
+  ui.add.addEventListener("click", ()=>addReflector());
+  
+  ui.del.addEventListener("click", ()=>{
+    if(selected<0) return;
+    lights.splice(selected, 1);
+    selected = Math.min(selected, lights.length-1);
+    refreshSel();
+    loadLightToUI();
+    updatePoints(lights, selected);
+    showToast("Eliminado");
+  });
+
+  ui.clone.addEventListener("click", () => {
+    if(selected < 0) return;
+    const src = lights[selected];
+    addReflector({
+      name: src.name + " (C)",
+      x: src.x + 0.5, 
+      y: src.y,
+      z: src.z + 0.5,
+      watts: src.watts,
+      angle: src.angle,
+      dist: src.dist,
+      color: src.color
+    });
+  });
+
+  document.getElementById("resetCam").addEventListener("click", ()=>{
+    cam.pos = [0, 5, 25]; cam.yaw = 0; cam.pitch = -0.1;
+  });
+
+  document.getElementById("resetAll").addEventListener("click", ()=>{
+    lights.length=0;
+    // Default scene: 30W LED cada uno (potentes)
+    addReflector({name:"R1", x:-3, z:-5, watts:30});
+    addReflector({name:"R2", x:3, z:-5, watts:30});
+    addReflector({name:"R3", x:-3, z:5, watts:30});
+    addReflector({name:"R4", x:3, z:5, watts:30});
+    document.getElementById("resetCam").click();
+  });
+
+  // Shift+Click Raycast
+  canvas.addEventListener("mousedown", e => {
+    if(!e.shiftKey || e.button !== 0 || selected < 0) return;
+    const rect = canvas.getBoundingClientRect();
+    const x = (e.clientX - rect.left) / rect.width * 2 - 1;
+    const y = -((e.clientY - rect.top) / rect.height * 2 - 1);
+    
+    const b = getCamBasis();
+    const aspect = canvas.width/canvas.height;
+    const tan = Math.tan((cam.fov*Math.PI/180)/2);
+    
+    let dir = v3.add(b.fwd, v3.add(v3.mul(b.rgt, x*aspect*tan), v3.mul(b.up, y*tan)));
+    dir = v3.norm(dir);
+    
+    const L = lights[selected];
+    const den = dir[1];
+    if(Math.abs(den) < 1e-5) return;
+    
+    const t = (L.y - cam.pos[1]) / den;
+    if(t < 0) return; 
+    
+    const hit = v3.add(cam.pos, v3.mul(dir, t));
+    L.x = hit[0]; L.z = hit[2];
+    ui.x.value = L.x; ui.z.value = L.z; 
+    applyUI();
+    showToast("Movido (Shift+Click)");
+  });
+
+  // --- Render Loop ---
+  gl.enable(gl.DEPTH_TEST);
+  
+  function frame(){
+    updateCamPhysics();
+    
+    gl.clearColor(0.02, 0.02, 0.02, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    
+    const aspect = canvas.width / canvas.height;
+    const proj = m4.perspective(cam.fov*Math.PI/180, aspect, 0.1, 500);
+    const view = m4.lookAt(cam.pos, v3.add(cam.pos, getCamBasis().fwd), [0,1,0]);
+    
+    gl.useProgram(roomP);
+    const u = {
+      view: gl.getUniformLocation(roomP, "uView"),
+      proj: gl.getUniformLocation(roomP, "uProj"),
+      base: gl.getUniformLocation(roomP, "uBaseColor"),
+      amb: gl.getUniformLocation(roomP, "uAmbient"),
+      exp: gl.getUniformLocation(roomP, "uExposure"),
+      gam: gl.getUniformLocation(roomP, "uGamma"),
+      cnt: gl.getUniformLocation(roomP, "uLightCount"),
+      lpos: gl.getUniformLocation(roomP, "uLightPos[0]"),
+      lcol: gl.getUniformLocation(roomP, "uLightColor[0]"),
+      lpow: gl.getUniformLocation(roomP, "uLightPower[0]"),
+      lcut: gl.getUniformLocation(roomP, "uLightCutCos[0]"),
+      ldist: gl.getUniformLocation(roomP, "uLightDist[0]"),
+      apos: gl.getAttribLocation(roomP, "aPos"),
+      anor: gl.getAttribLocation(roomP, "aNor")
+    };
+    
+    gl.uniformMatrix4fv(u.proj, false, proj);
+    gl.uniformMatrix4fv(u.view, false, view);
+    gl.uniform3f(u.base, 0.2, 0.2, 0.22);
+    gl.uniform1f(u.amb, Number(ui.amb.value));
+    gl.uniform1f(u.exp, Number(ui.exp.value));
+    gl.uniform1f(u.gam, 2.2);
+    
+    const dataPos = [], dataCol = [], dataPow = [], dataCut = [], dataDist = [];
+    lights.forEach(l => {
+      dataPos.push(l.x, l.y, l.z);
+      dataCol.push(...hexToRgb(l.color));
+      
+      // CALIBRACION SEGUN GUIA LED:
+      // 10W -> 0.6 intensidad (suave/visible)
+      // 50W -> 3.0 intensidad (muy fuerte)
+      // 100W -> 6.0 intensidad (encandila / satura blancos)
+      dataPow.push(l.watts * 0.06); 
+      
+      dataCut.push(Math.cos(l.angle * Math.PI/360));
+      dataDist.push(l.dist);
+    });
+    
+    for(let i=lights.length; i<MAX_LIGHTS; i++){
+      dataPos.push(0,0,0); dataCol.push(0,0,0); dataPow.push(0); dataCut.push(1); dataDist.push(0);
+    }
+    
+    gl.uniform1i(u.cnt, lights.length);
+    gl.uniform3fv(u.lpos, dataPos);
+    gl.uniform3fv(u.lcol, dataCol);
+    gl.uniform1fv(u.lpow, dataPow);
+    gl.uniform1fv(u.lcut, dataCut);
+    gl.uniform1fv(u.ldist, dataDist);
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, roomPosB);
+    gl.vertexAttribPointer(u.apos, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(u.apos);
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, roomNorB);
+    gl.vertexAttribPointer(u.anor, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(u.anor);
+    
+    gl.drawArrays(gl.TRIANGLES, 0, roomPos.length/3);
+    
+    gl.useProgram(lineP);
+    const lu = {
+       view: gl.getUniformLocation(lineP, "uView"),
+       proj: gl.getUniformLocation(lineP, "uProj"),
+       col: gl.getUniformLocation(lineP, "uColor"),
+       apos: gl.getAttribLocation(lineP, "aPos")
+    };
+    gl.uniformMatrix4fv(lu.proj, false, proj);
+    gl.uniformMatrix4fv(lu.view, false, view);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gridB);
+    gl.vertexAttribPointer(lu.apos, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(lu.apos);
+    gl.uniform4f(lu.col, 0.3, 0.3, 0.35, 1);
+    gl.drawArrays(gl.LINES, 0, grid.length/3);
+    
+    gl.useProgram(pointP);
+    const pu = {
+       view: gl.getUniformLocation(pointP, "uView"),
+       proj: gl.getUniformLocation(pointP, "uProj"),
+       apos: gl.getAttribLocation(pointP, "aPos"),
+       asel: gl.getAttribLocation(pointP, "aSel")
+    };
+    gl.uniformMatrix4fv(pu.proj, false, proj);
+    gl.uniformMatrix4fv(pu.view, false, view);
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, ptPosB);
+    gl.vertexAttribPointer(pu.apos, 3, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(pu.apos);
+    
+    gl.bindBuffer(gl.ARRAY_BUFFER, ptSelB);
+    gl.vertexAttribPointer(pu.asel, 1, gl.FLOAT, false, 0, 0);
+    gl.enableVertexAttribArray(pu.asel);
+    
+    gl.drawArrays(gl.POINTS, 0, MAX_LIGHTS);
+
+    requestAnimationFrame(frame);
+  }
+  
+  document.getElementById("resetAll").click();
+  requestAnimationFrame(frame);
+  showToast("Sistema calibrado: Max 100W (LED Real)");
+})();
+</script>
+</body>
+</html>
